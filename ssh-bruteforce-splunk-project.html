@@ -1,0 +1,1684 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>SSH Brute-Force Detection — Splunk SIEM Project</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@500;700;900&family=Syne:wght@300;400;600&display=swap" rel="stylesheet"/>
+<style>
+:root{
+  --bg:#030d14;--s1:#051824;--s2:#071e2e;--s3:#0a2535;
+  --border:#0e3d58;--border2:#1a5a7a;
+  --green:#00ff88;--green2:#00cc6a;--greendim:rgba(0,255,136,0.12);
+  --cyan:#00d4ff;--cyandim:rgba(0,212,255,0.12);
+  --red:#ff3355;--reddim:rgba(255,51,85,0.12);
+  --amber:#ffb700;--amberdim:rgba(255,183,0,0.12);
+  --purple:#a855f7;
+  --text:#b8d8e8;--textdim:#4a7a90;--textbright:#e0f4ff;
+  --mono:'Share Tech Mono',monospace;
+  --head:'Orbitron',sans-serif;
+  --body:'Syne',sans-serif;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--text);font-family:var(--body);min-height:100vh;overflow-x:hidden;cursor:crosshair}
+
+/* scanlines */
+body::before{
+  content:'';position:fixed;inset:0;pointer-events:none;z-index:900;
+  background:repeating-linear-gradient(0deg,transparent,transparent 3px,rgba(0,212,255,0.009) 3px,rgba(0,212,255,0.009) 4px);
+}
+/* dot grid */
+body::after{
+  content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
+  background-image:radial-gradient(rgba(0,212,255,0.06) 1px,transparent 1px);
+  background-size:28px 28px;
+}
+
+/* ── SCROLLBAR ── */
+::-webkit-scrollbar{width:6px;background:var(--bg)}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
+
+/* ── HEADER ── */
+header{
+  position:relative;z-index:10;
+  background:linear-gradient(180deg,rgba(0,212,255,0.07) 0%,transparent 100%);
+  border-bottom:1px solid var(--border);
+  padding:18px 32px;
+  display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;
+}
+.hdr-left{display:flex;align-items:center;gap:14px}
+.hdr-shield{
+  width:46px;height:46px;border:2px solid var(--cyan);border-radius:10px;
+  display:flex;align-items:center;justify-content:center;font-size:22px;
+  box-shadow:0 0 20px rgba(0,212,255,0.5);
+  animation:shieldPulse 3s ease-in-out infinite;
+  background:rgba(0,212,255,0.07);
+}
+@keyframes shieldPulse{0%,100%{box-shadow:0 0 20px rgba(0,212,255,0.5)}50%{box-shadow:0 0 40px rgba(0,212,255,0.9),0 0 80px rgba(0,212,255,0.3)}}
+.hdr-title{font-family:var(--head);font-size:1.1rem;font-weight:700;letter-spacing:.12em;color:var(--cyan);text-shadow:0 0 20px rgba(0,212,255,0.6)}
+.hdr-sub{font-family:var(--mono);font-size:.62rem;color:var(--textdim);letter-spacing:.08em;margin-top:2px}
+.hdr-right{display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+.status-dot{display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:.65rem;color:var(--textdim)}
+.dot{width:8px;height:8px;border-radius:50%;animation:blink 1.5s step-end infinite}
+.dot.live{background:var(--green);box-shadow:0 0 8px var(--green)}
+.dot.alert{background:var(--red);box-shadow:0 0 8px var(--red)}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
+#clock{font-family:var(--mono);font-size:.7rem;color:var(--cyan);letter-spacing:.1em;background:rgba(0,212,255,0.07);padding:5px 12px;border:1px solid var(--border);border-radius:4px}
+
+/* ── NAV TABS ── */
+nav{
+  position:relative;z-index:10;
+  display:flex;gap:0;border-bottom:1px solid var(--border);
+  background:var(--s1);overflow-x:auto;
+}
+.tab{
+  padding:12px 22px;font-family:var(--mono);font-size:.65rem;letter-spacing:.1em;
+  color:var(--textdim);cursor:pointer;border-right:1px solid var(--border);
+  transition:.2s;white-space:nowrap;border-bottom:2px solid transparent;position:relative;
+}
+.tab:hover{color:var(--cyan);background:rgba(0,212,255,0.05)}
+.tab.active{color:var(--cyan);border-bottom-color:var(--cyan);background:rgba(0,212,255,0.08)}
+.tab-badge{
+  display:inline-flex;align-items:center;justify-content:center;
+  margin-left:6px;min-width:16px;height:16px;border-radius:8px;
+  font-size:.55rem;padding:0 4px;
+  background:var(--reddim);color:var(--red);border:1px solid var(--red);
+}
+
+/* ── MAIN ── */
+main{position:relative;z-index:5;padding:24px 28px;max-width:1600px;margin:0 auto}
+.page{display:none}
+.page.active{display:block}
+
+/* ── STAT CARDS ── */
+.stats-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:24px}
+.stat-card{
+  background:var(--s1);border:1px solid var(--border);border-radius:10px;
+  padding:18px 20px;position:relative;overflow:hidden;
+  transition:border-color .3s,box-shadow .3s;
+}
+.stat-card:hover{border-color:var(--border2);box-shadow:0 0 20px rgba(0,212,255,0.08)}
+.stat-card::before{
+  content:'';position:absolute;top:0;left:0;right:0;height:2px;
+}
+.stat-card.c-green::before{background:linear-gradient(90deg,transparent,var(--green),transparent)}
+.stat-card.c-cyan::before{background:linear-gradient(90deg,transparent,var(--cyan),transparent)}
+.stat-card.c-red::before{background:linear-gradient(90deg,transparent,var(--red),transparent)}
+.stat-card.c-amber::before{background:linear-gradient(90deg,transparent,var(--amber),transparent)}
+.stat-card.c-purple::before{background:linear-gradient(90deg,transparent,var(--purple),transparent)}
+.stat-label{font-family:var(--mono);font-size:.6rem;color:var(--textdim);letter-spacing:.1em;text-transform:uppercase;margin-bottom:10px}
+.stat-value{font-family:var(--head);font-size:2rem;font-weight:700;line-height:1}
+.stat-value.green{color:var(--green);text-shadow:0 0 14px rgba(0,255,136,0.5)}
+.stat-value.cyan{color:var(--cyan);text-shadow:0 0 14px rgba(0,212,255,0.5)}
+.stat-value.red{color:var(--red);text-shadow:0 0 14px rgba(255,51,85,0.5)}
+.stat-value.amber{color:var(--amber);text-shadow:0 0 14px rgba(255,183,0,0.5)}
+.stat-value.purple{color:var(--purple);text-shadow:0 0 14px rgba(168,85,247,0.5)}
+.stat-trend{font-family:var(--mono);font-size:.6rem;margin-top:8px;color:var(--textdim)}
+.stat-trend.up{color:var(--red)}
+.stat-trend.ok{color:var(--green)}
+
+/* ── GRID LAYOUTS ── */
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:18px}
+.grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:18px;margin-bottom:18px}
+.grid-big-small{display:grid;grid-template-columns:2fr 1fr;gap:18px;margin-bottom:18px}
+.grid-small-big{display:grid;grid-template-columns:1fr 2fr;gap:18px;margin-bottom:18px}
+@media(max-width:900px){.grid-2,.grid-3,.grid-big-small,.grid-small-big{grid-template-columns:1fr}}
+
+/* ── PANELS ── */
+.panel{
+  background:var(--s1);border:1px solid var(--border);border-radius:10px;
+  overflow:hidden;
+}
+.panel-head{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:12px 18px;border-bottom:1px solid var(--border);
+  background:rgba(0,0,0,0.2);
+}
+.panel-title{font-family:var(--mono);font-size:.65rem;letter-spacing:.1em;color:var(--cyan);text-transform:uppercase;display:flex;align-items:center;gap:8px}
+.panel-title .icon{font-size:.9rem}
+.panel-body{padding:16px}
+
+/* ── CHARTS ── */
+canvas{display:block;width:100%!important}
+.chart-wrap{padding:16px;min-height:180px;display:flex;align-items:center;justify-content:center}
+
+/* ── LOG FEED ── */
+.log-feed{
+  font-family:var(--mono);font-size:.6rem;line-height:1.7;
+  max-height:320px;overflow-y:auto;padding:10px 14px;
+  background:rgba(0,0,0,0.3);
+}
+.log-entry{
+  display:flex;gap:10px;align-items:flex-start;padding:3px 0;
+  border-bottom:1px solid rgba(255,255,255,0.03);
+  animation:logIn .3s ease;
+}
+@keyframes logIn{from{opacity:0;transform:translateX(-8px)}to{opacity:1;transform:none}}
+.log-ts{color:var(--textdim);flex-shrink:0;width:155px}
+.log-host{color:var(--amber);flex-shrink:0;width:80px}
+.log-msg{}
+.log-msg.fail{color:var(--red)}
+.log-msg.success{color:var(--green)}
+.log-msg.info{color:var(--cyan)}
+.log-msg.warn{color:var(--amber)}
+
+/* ── IP TABLE ── */
+.ip-table{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:.62rem}
+.ip-table th{
+  padding:8px 12px;text-align:left;color:var(--textdim);
+  border-bottom:1px solid var(--border);letter-spacing:.08em;font-weight:400;
+}
+.ip-table td{padding:7px 12px;border-bottom:1px solid rgba(14,61,88,0.5);transition:.15s}
+.ip-table tr:hover td{background:rgba(0,212,255,0.04)}
+.ip-table tr.threat-high td{color:var(--red)}
+.ip-table tr.threat-med td{color:var(--amber)}
+.ip-table tr.threat-low td{color:var(--green)}
+.bar-inline{display:inline-block;height:6px;border-radius:3px;margin-left:8px;vertical-align:middle}
+.bar-inline.red{background:var(--red)}
+.bar-inline.amber{background:var(--amber)}
+.bar-inline.green{background:var(--green)}
+
+/* ── ALERT FEED ── */
+.alert-item{
+  display:flex;align-items:flex-start;gap:12px;
+  padding:12px 14px;border-left:3px solid transparent;margin-bottom:8px;
+  border-radius:6px;background:rgba(0,0,0,0.2);animation:alertIn .4s ease;
+}
+@keyframes alertIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+.alert-item.critical{border-left-color:var(--red);background:var(--reddim)}
+.alert-item.high{border-left-color:var(--amber);background:var(--amberdim)}
+.alert-item.medium{border-left-color:var(--cyan);background:var(--cyandim)}
+.alert-icon{font-size:1.1rem;flex-shrink:0;margin-top:2px}
+.alert-title{font-family:var(--mono);font-size:.65rem;letter-spacing:.06em;font-weight:bold}
+.alert-title.red{color:var(--red)}
+.alert-title.amber{color:var(--amber)}
+.alert-title.cyan{color:var(--cyan)}
+.alert-detail{font-size:.6rem;color:var(--textdim);margin-top:3px;font-family:var(--mono)}
+.alert-time{font-family:var(--mono);font-size:.55rem;color:var(--textdim);margin-left:auto;flex-shrink:0}
+
+/* ── SPL QUERIES ── */
+.spl-tabs{display:flex;gap:0;border-bottom:1px solid var(--border);overflow-x:auto}
+.spl-tab{
+  padding:8px 16px;font-family:var(--mono);font-size:.6rem;letter-spacing:.07em;
+  color:var(--textdim);cursor:pointer;border-right:1px solid var(--border);
+  white-space:nowrap;border-bottom:2px solid transparent;transition:.2s;
+}
+.spl-tab.active{color:var(--green);border-bottom-color:var(--green);background:rgba(0,255,136,0.05)}
+.spl-tab:hover{color:var(--green);background:rgba(0,255,136,0.04)}
+.spl-content{display:none;padding:14px}
+.spl-content.active{display:block}
+.spl-desc{font-size:.72rem;color:var(--textdim);margin-bottom:10px;line-height:1.6;font-family:var(--body)}
+.code-block{
+  background:rgba(0,0,0,0.5);border:1px solid var(--border);border-radius:8px;
+  padding:14px 16px;font-family:var(--mono);font-size:.65rem;line-height:1.8;
+  position:relative;overflow-x:auto;white-space:pre;
+}
+.code-block .kw{color:var(--cyan)}
+.code-block .str{color:var(--green)}
+.code-block .fn{color:var(--amber)}
+.code-block .op{color:var(--purple)}
+.code-block .cm{color:var(--textdim)}
+.copy-btn{
+  position:absolute;top:8px;right:8px;
+  background:rgba(0,212,255,0.1);border:1px solid var(--border);border-radius:4px;
+  padding:4px 10px;font-family:var(--mono);font-size:.55rem;color:var(--cyan);
+  cursor:pointer;transition:.2s;
+}
+.copy-btn:hover{background:rgba(0,212,255,0.25);border-color:var(--cyan)}
+.copy-btn.copied{color:var(--green);border-color:var(--green);background:rgba(0,255,136,0.1)}
+
+/* ── ARCHITECTURE ── */
+.arch-diagram{
+  padding:30px 20px;display:flex;align-items:center;justify-content:center;
+  gap:0;flex-wrap:wrap;
+}
+.arch-node{
+  background:var(--s2);border:1px solid var(--border2);border-radius:10px;
+  padding:16px 20px;text-align:center;min-width:140px;position:relative;
+}
+.arch-node .icon{font-size:2rem;margin-bottom:8px}
+.arch-node .label{font-family:var(--head);font-size:.55rem;letter-spacing:.1em;color:var(--cyan);margin-bottom:4px}
+.arch-node .ip{font-family:var(--mono);font-size:.6rem;color:var(--textdim)}
+.arch-node .os{font-family:var(--mono);font-size:.55rem;color:var(--green);margin-top:3px}
+.arch-node.attacker{border-color:var(--red);background:rgba(255,51,85,0.06)}
+.arch-node.attacker .label{color:var(--red)}
+.arch-node.victim{border-color:var(--amber);background:rgba(255,183,0,0.06)}
+.arch-node.victim .label{color:var(--amber)}
+.arch-node.splunk{border-color:var(--green);background:rgba(0,255,136,0.06)}
+.arch-node.splunk .label{color:var(--green)}
+.arch-arrow{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  padding:0 10px;gap:4px;
+}
+.arrow-line{width:60px;height:2px;background:linear-gradient(90deg,var(--red),var(--amber));position:relative}
+.arrow-line::after{content:'▶';position:absolute;right:-8px;top:-7px;font-size:.7rem;color:var(--amber)}
+.arrow-label{font-family:var(--mono);font-size:.52rem;color:var(--textdim);white-space:nowrap}
+.arrow-down{
+  display:flex;flex-direction:column;align-items:center;padding:8px 0;gap:4px;
+}
+.arrow-down-line{width:2px;height:40px;background:linear-gradient(180deg,var(--amber),var(--green))}
+.arrow-down::after{content:'▼';font-size:.7rem;color:var(--green)}
+
+/* ── BUTTONS ── */
+.btn{
+  padding:9px 20px;border-radius:6px;font-family:var(--mono);font-size:.65rem;
+  letter-spacing:.08em;cursor:pointer;border:1px solid;transition:.2s;text-transform:uppercase;
+}
+.btn-danger{
+  background:var(--reddim);color:var(--red);border-color:var(--red);
+  box-shadow:0 0 12px rgba(255,51,85,0.2);
+}
+.btn-danger:hover{background:rgba(255,51,85,0.25);box-shadow:0 0 20px rgba(255,51,85,0.5)}
+.btn-danger:active{transform:scale(.97)}
+.btn-cyan{
+  background:var(--cyandim);color:var(--cyan);border-color:var(--cyan);
+  box-shadow:0 0 12px rgba(0,212,255,0.2);
+}
+.btn-cyan:hover{background:rgba(0,212,255,0.2);box-shadow:0 0 20px rgba(0,212,255,0.5)}
+.btn-green{
+  background:var(--greendim);color:var(--green);border-color:var(--green);
+}
+.btn-green:hover{background:rgba(0,255,136,0.2)}
+.btn-sm{padding:5px 12px;font-size:.58rem}
+.btn-row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+
+/* ── SIMULATION CONTROLS ── */
+.sim-panel{
+  background:var(--reddim);border:1px solid var(--red);border-radius:10px;
+  padding:18px 20px;margin-bottom:18px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px;
+}
+.sim-label{font-family:var(--mono);font-size:.7rem;color:var(--red);letter-spacing:.08em}
+.sim-sub{font-size:.6rem;color:var(--textdim);font-family:var(--mono);margin-top:4px}
+.sim-progress{flex:1;min-width:180px;max-width:300px}
+.progress-bar-wrap{background:rgba(0,0,0,0.4);border-radius:4px;height:8px;overflow:hidden;margin-top:8px;border:1px solid var(--border)}
+.progress-bar{height:100%;width:0%;background:linear-gradient(90deg,var(--red),var(--amber));border-radius:4px;transition:width .2s;box-shadow:0 0 8px var(--red)}
+.progress-label{font-family:var(--mono);font-size:.58rem;color:var(--textdim);margin-top:4px}
+
+/* ── SETUP GUIDE ── */
+.step-section{margin-bottom:16px;border:1px solid var(--border);border-radius:8px;overflow:hidden}
+.step-header{
+  padding:12px 16px;background:var(--s2);cursor:pointer;
+  display:flex;align-items:center;justify-content:space-between;
+  font-family:var(--mono);font-size:.65rem;letter-spacing:.08em;color:var(--cyan);
+  transition:.2s;
+}
+.step-header:hover{background:var(--s3)}
+.step-header .step-num{
+  width:24px;height:24px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  font-size:.6rem;font-weight:bold;margin-right:10px;flex-shrink:0;
+  border:1px solid var(--cyan);color:var(--cyan);
+}
+.step-header .step-num.done{border-color:var(--green);color:var(--bg);background:var(--green)}
+.step-body{display:none;padding:14px 16px;border-top:1px solid var(--border);background:rgba(0,0,0,0.15)}
+.step-body.open{display:block}
+.step-body p{font-size:.72rem;color:var(--text);line-height:1.7;margin-bottom:10px;font-family:var(--body)}
+.step-body .cmd{
+  background:rgba(0,0,0,0.5);border:1px solid var(--border);border-radius:6px;
+  padding:10px 14px;font-family:var(--mono);font-size:.63rem;color:var(--green);
+  margin:6px 0;display:flex;align-items:flex-start;gap:8px;
+}
+.step-body .cmd::before{content:'$';color:var(--textdim);flex-shrink:0}
+.chevron{font-size:.7rem;transition:transform .2s}
+.chevron.open{transform:rotate(90deg)}
+
+/* ── SKILL TAGS ── */
+.skills-grid{display:flex;flex-wrap:wrap;gap:10px;padding:16px}
+.skill-tag{
+  padding:8px 16px;border-radius:6px;font-family:var(--mono);font-size:.62rem;
+  letter-spacing:.07em;border:1px solid;
+}
+.skill-tag.g{border-color:var(--green);color:var(--green);background:var(--greendim)}
+.skill-tag.c{border-color:var(--cyan);color:var(--cyan);background:var(--cyandim)}
+.skill-tag.a{border-color:var(--amber);color:var(--amber);background:var(--amberdim)}
+.skill-tag.r{border-color:var(--red);color:var(--red);background:var(--reddim)}
+.skill-tag.p{border-color:var(--purple);color:var(--purple);background:rgba(168,85,247,0.1)}
+
+/* ── USERNAME PIE ── */
+.user-bars{padding:10px 16px}
+.user-bar-row{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.user-bar-label{font-family:var(--mono);font-size:.62rem;color:var(--textdim);width:70px;flex-shrink:0}
+.user-bar-track{flex:1;background:rgba(0,0,0,0.4);border-radius:3px;height:8px;overflow:hidden}
+.user-bar-fill{height:100%;border-radius:3px;transition:width 1s ease}
+.user-bar-count{font-family:var(--mono);font-size:.6rem;color:var(--textdim);width:34px;text-align:right;flex-shrink:0}
+
+/* ── RESUME SECTION ── */
+.resume-box{
+  background:rgba(0,255,136,0.04);border:1px solid var(--green);border-radius:10px;
+  padding:20px 24px;
+}
+.resume-title{font-family:var(--head);font-size:.75rem;letter-spacing:.1em;color:var(--green);margin-bottom:14px}
+.resume-item{display:flex;gap:10px;margin-bottom:8px;align-items:flex-start}
+.resume-item::before{content:'•';color:var(--green);flex-shrink:0;margin-top:2px}
+.resume-item p{font-size:.72rem;line-height:1.6;color:var(--text)}
+
+/* ── SECTION HEADERS ── */
+.section-head{
+  display:flex;align-items:center;gap:10px;margin-bottom:16px;margin-top:10px;
+  font-family:var(--head);font-size:.7rem;letter-spacing:.15em;color:var(--cyan);
+  text-transform:uppercase;
+}
+.section-head::after{content:'';flex:1;height:1px;background:linear-gradient(90deg,var(--border),transparent)}
+
+/* ── THREAT INDICATOR ── */
+.threat-level{
+  display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:.6rem;
+}
+.threat-level .seg{width:18px;height:8px;border-radius:2px;background:rgba(255,255,255,0.1)}
+.threat-level .seg.active-r{background:var(--red);box-shadow:0 0 6px var(--red)}
+.threat-level .seg.active-a{background:var(--amber);box-shadow:0 0 6px var(--amber)}
+.threat-level .seg.active-g{background:var(--green);box-shadow:0 0 6px var(--green)}
+
+/* ── MINI SPARK ── */
+.spark-row{display:flex;align-items:flex-end;gap:2px;height:32px;padding:0 16px 10px}
+.spark-bar{width:8px;background:var(--cyan);border-radius:2px 2px 0 0;opacity:.5;transition:height .3s}
+
+/* ── LOADING ── */
+.loading-bar{
+  height:2px;background:linear-gradient(90deg,transparent,var(--cyan),transparent);
+  animation:loadingAnim 2s linear infinite;
+}
+@keyframes loadingAnim{from{transform:translateX(-100%)}to{transform:translateX(100%)}}
+
+/* ── TOOLTIP ── */
+.tooltip{position:relative}
+.tooltip .tip{
+  display:none;position:absolute;bottom:130%;left:50%;transform:translateX(-50%);
+  background:var(--s3);border:1px solid var(--border2);border-radius:6px;
+  padding:6px 10px;font-family:var(--mono);font-size:.58rem;color:var(--textbright);
+  white-space:nowrap;z-index:100;
+}
+.tooltip:hover .tip{display:block}
+
+/* ── MISC ── */
+.spacer{height:18px}
+.text-xs{font-size:.65rem;font-family:var(--mono);color:var(--textdim)}
+.text-green{color:var(--green)}
+.text-red{color:var(--red)}
+.text-cyan{color:var(--cyan)}
+.text-amber{color:var(--amber)}
+
+/* pulsing alert */
+@keyframes alertPulse{0%,100%{opacity:1}50%{opacity:.5}}
+.pulse{animation:alertPulse 1.2s ease-in-out infinite}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<header>
+  <div class="hdr-left">
+    <div class="hdr-shield">🛡️</div>
+    <div>
+      <div class="hdr-title">SSH BRUTE-FORCE DETECTION</div>
+      <div class="hdr-sub">SPLUNK SIEM · SOC BLUE TEAM PROJECT · v1.0</div>
+    </div>
+  </div>
+  <div class="hdr-right">
+    <div class="status-dot"><div class="dot live"></div>LIVE MONITORING</div>
+    <div class="status-dot" id="alertStatus"><div class="dot alert pulse" id="alertDot" style="opacity:0"></div><span id="alertStatusText">NO ALERTS</span></div>
+    <div id="clock">00:00:00</div>
+  </div>
+</header>
+
+<!-- NAV -->
+<nav>
+  <div class="tab active" onclick="switchPage('dashboard',this)">📊 DASHBOARD</div>
+  <div class="tab" onclick="switchPage('simulation',this)">⚡ ATTACK SIM</div>
+  <div class="tab" onclick="switchPage('logs',this)">📋 LIVE LOGS</div>
+  <div class="tab" onclick="switchPage('spl',this)">🔍 SPL QUERIES</div>
+  <div class="tab" onclick="switchPage('alerts',this)">🚨 ALERTS <span class="tab-badge" id="alertBadge">0</span></div>
+  <div class="tab" onclick="switchPage('setup',this)">⚙️ LAB SETUP</div>
+  <div class="tab" onclick="switchPage('resume',this)">📄 RESUME</div>
+</nav>
+
+<main>
+
+<!-- ═══════════════ PAGE: DASHBOARD ═══════════════ -->
+<div class="page active" id="page-dashboard">
+  <div class="stats-row">
+    <div class="stat-card c-red">
+      <div class="stat-label">FAILED SSH ATTEMPTS</div>
+      <div class="stat-value red" id="st-failed">0</div>
+      <div class="stat-trend up" id="st-failed-trend">▲ +0 last 5 min</div>
+    </div>
+    <div class="stat-card c-cyan">
+      <div class="stat-label">UNIQUE ATTACKER IPs</div>
+      <div class="stat-value cyan" id="st-ips">0</div>
+      <div class="stat-trend" id="st-ip-trend" style="color:var(--textdim)">No activity</div>
+    </div>
+    <div class="stat-card c-amber">
+      <div class="stat-label">BRUTE FORCE ALERTS</div>
+      <div class="stat-value amber" id="st-alerts">0</div>
+      <div class="stat-trend up" id="st-alert-trend">Threshold: &gt;20 attempts</div>
+    </div>
+    <div class="stat-card c-green">
+      <div class="stat-label">SUCCESSFUL LOGINS</div>
+      <div class="stat-value green" id="st-success">0</div>
+      <div class="stat-trend ok" id="st-success-trend">Monitoring...</div>
+    </div>
+    <div class="stat-card c-purple">
+      <div class="stat-label">TARGETED USERNAMES</div>
+      <div class="stat-value purple" id="st-users">0</div>
+      <div class="stat-trend" style="color:var(--textdim)">Unique accounts</div>
+    </div>
+  </div>
+
+  <!-- Threat Level -->
+  <div class="panel" style="margin-bottom:18px">
+    <div class="panel-head">
+      <div class="panel-title"><span class="icon">⚠️</span> THREAT LEVEL INDICATOR</div>
+      <div class="threat-level" id="threatDisplay">
+        <span style="color:var(--textdim);font-family:var(--mono);font-size:.6rem">LOW</span>
+        <div class="seg" id="ts1"></div><div class="seg" id="ts2"></div><div class="seg" id="ts3"></div>
+        <div class="seg" id="ts4"></div><div class="seg" id="ts5"></div>
+        <span id="threatText" style="color:var(--green);font-family:var(--mono);font-size:.6rem;margin-left:4px">● NORMAL</span>
+        <span style="color:var(--textdim);font-family:var(--mono);font-size:.6rem">HIGH</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid-big-small">
+    <!-- Line Chart -->
+    <div class="panel">
+      <div class="panel-head">
+        <div class="panel-title"><span class="icon">📈</span> FAILED SSH ATTEMPTS OVER TIME</div>
+        <span class="text-xs" id="chartTimeRange">Last 10 minutes</span>
+      </div>
+      <div class="chart-wrap" style="padding:16px 12px 8px">
+        <canvas id="lineChart" height="170"></canvas>
+      </div>
+    </div>
+    <!-- IP Table -->
+    <div class="panel">
+      <div class="panel-head">
+        <div class="panel-title"><span class="icon">🎯</span> TOP ATTACKING IPs</div>
+        <span class="text-xs">Live</span>
+      </div>
+      <div style="padding:0 0 8px">
+        <table class="ip-table">
+          <thead><tr><th>IP ADDRESS</th><th>COUNT</th><th>STATUS</th></tr></thead>
+          <tbody id="ipTableBody">
+            <tr><td colspan="3" style="text-align:center;color:var(--textdim);padding:20px;font-family:var(--mono);font-size:.6rem">No attacks detected. Start simulation →</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid-2">
+    <!-- Bar Chart -->
+    <div class="panel">
+      <div class="panel-head">
+        <div class="panel-title"><span class="icon">📊</span> ATTACK VOLUME BY IP</div>
+      </div>
+      <div class="chart-wrap" style="padding:16px 12px 8px">
+        <canvas id="barChart" height="190"></canvas>
+      </div>
+    </div>
+    <!-- Username -->
+    <div class="panel">
+      <div class="panel-head">
+        <div class="panel-title"><span class="icon">👤</span> TARGETED USERNAMES</div>
+        <span class="text-xs">SPL: rex "for (?&lt;user&gt;\w+)"</span>
+      </div>
+      <div class="user-bars" id="userBars">
+        <div style="text-align:center;color:var(--textdim);padding:30px 10px;font-family:var(--mono);font-size:.6rem">No data yet. Start attack simulation.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Recent Log Preview -->
+  <div class="panel">
+    <div class="panel-head">
+      <div class="panel-title"><span class="icon">📋</span> RECENT AUTH.LOG EVENTS</div>
+      <div class="loading-bar" style="width:80px;overflow:hidden"></div>
+    </div>
+    <div class="log-feed" id="dashLogFeed">
+      <div class="log-entry">
+        <span class="log-ts">─── Waiting for events ───</span>
+        <span class="log-msg info">System monitoring active. Run attack simulation to generate log events.</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════ PAGE: SIMULATION ═══════════════ -->
+<div class="page" id="page-simulation">
+  <div class="section-head">ATTACK SIMULATION CONTROLS</div>
+
+  <div class="sim-panel" id="simPanel">
+    <div>
+      <div class="sim-label">⚡ METASPLOIT SSH BRUTE-FORCE MODULE</div>
+      <div class="sim-sub">auxiliary/scanner/ssh/ssh_login · RHOSTS: 192.168.1.10 · THREADS: 10</div>
+    </div>
+    <div class="sim-progress">
+      <div style="font-family:var(--mono);font-size:.6rem;color:var(--textdim)" id="simStatus">Ready to launch</div>
+      <div class="progress-bar-wrap"><div class="progress-bar" id="simProgress"></div></div>
+      <div class="progress-label" id="simProgressLabel">0 / 0 attempts</div>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-danger" id="btnAttack" onclick="startAttack()">▶ LAUNCH ATTACK</button>
+      <button class="btn btn-cyan btn-sm" onclick="stopAttack()">■ STOP</button>
+      <button class="btn btn-green btn-sm" onclick="resetAll()">↺ RESET</button>
+    </div>
+  </div>
+
+  <div class="grid-2">
+    <!-- Attacker Config -->
+    <div class="panel">
+      <div class="panel-head"><div class="panel-title"><span class="icon">💀</span> ATTACKER — KALI LINUX</div></div>
+      <div class="panel-body">
+        <div style="font-family:var(--mono);font-size:.62rem;color:var(--textdim);margin-bottom:12px">Machine: 192.168.1.20 | Tool: Metasploit Framework</div>
+        <div style="margin-bottom:10px">
+          <label style="font-family:var(--mono);font-size:.6rem;color:var(--textdim);display:block;margin-bottom:5px">ATTACK INTENSITY</label>
+          <input type="range" id="intensityRange" min="1" max="5" value="3" style="width:100%;accent-color:var(--red)" oninput="document.getElementById('intensityVal').textContent=['LOW','MEDIUM','HIGH','AGGRESSIVE','MAX'][this.value-1]">
+          <span style="font-family:var(--mono);font-size:.6rem;color:var(--red)" id="intensityVal">HIGH</span>
+        </div>
+        <div>
+          <label style="font-family:var(--mono);font-size:.6rem;color:var(--textdim);display:block;margin-bottom:5px">TARGET USER LIST</label>
+          <div style="display:flex;flex-wrap:wrap;gap:6px" id="userCheckboxes"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Victim Config -->
+    <div class="panel">
+      <div class="panel-head"><div class="panel-title"><span class="icon">🖥️</span> VICTIM — UBUNTU SERVER</div></div>
+      <div class="panel-body">
+        <div style="font-family:var(--mono);font-size:.62rem;color:var(--textdim);margin-bottom:12px">Machine: 192.168.1.10 | Log: /var/log/auth.log</div>
+        <div class="grid-2" style="gap:10px;margin-bottom:0">
+          <div style="background:rgba(0,0,0,0.3);border-radius:6px;padding:10px;border:1px solid var(--border)">
+            <div style="font-family:var(--mono);font-size:.55rem;color:var(--textdim);margin-bottom:4px">SSH PORT</div>
+            <div style="font-family:var(--mono);font-size:.8rem;color:var(--amber)">22/TCP</div>
+          </div>
+          <div style="background:rgba(0,0,0,0.3);border-radius:6px;padding:10px;border:1px solid var(--border)">
+            <div style="font-family:var(--mono);font-size:.55rem;color:var(--textdim);margin-bottom:4px">FIREWALL</div>
+            <div style="font-family:var(--mono);font-size:.8rem;color:var(--red)">DISABLED</div>
+          </div>
+          <div style="background:rgba(0,0,0,0.3);border-radius:6px;padding:10px;border:1px solid var(--border)">
+            <div style="font-family:var(--mono);font-size:.55rem;color:var(--textdim);margin-bottom:4px">FORWARDER</div>
+            <div style="font-family:var(--mono);font-size:.8rem;color:var(--green)">ACTIVE</div>
+          </div>
+          <div style="background:rgba(0,0,0,0.3);border-radius:6px;padding:10px;border:1px solid var(--border)">
+            <div style="font-family:var(--mono);font-size:.55rem;color:var(--textdim);margin-bottom:4px">LOG RATE</div>
+            <div style="font-family:var(--mono);font-size:.8rem;color:var(--cyan)" id="logRate">0/sec</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Nmap Scan Panel -->
+  <div class="panel" style="margin-bottom:18px">
+    <div class="panel-head"><div class="panel-title"><span class="icon">🔍</span> NMAP PORT SCAN — PRE-ATTACK RECON</div></div>
+    <div class="panel-body">
+      <div class="btn-row" style="margin-bottom:12px">
+        <button class="btn btn-cyan btn-sm" onclick="runNmap()">▶ RUN NMAP SCAN</button>
+        <span style="font-family:var(--mono);font-size:.6rem;color:var(--textdim)">nmap -p 22 192.168.1.10</span>
+      </div>
+      <div class="code-block" id="nmapOutput" style="min-height:60px">
+<span class="cm"># Click "RUN NMAP SCAN" to simulate port discovery</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Architecture Diagram -->
+  <div class="panel">
+    <div class="panel-head"><div class="panel-title"><span class="icon">🗺️</span> LAB NETWORK ARCHITECTURE</div></div>
+    <div class="arch-diagram">
+      <div class="arch-node attacker">
+        <div class="icon">💻</div>
+        <div class="label">ATTACKER</div>
+        <div class="ip">192.168.1.20</div>
+        <div class="os">Kali Linux</div>
+        <div style="font-family:var(--mono);font-size:.5rem;color:var(--red);margin-top:4px">Metasploit · Nmap</div>
+      </div>
+      <div class="arch-arrow">
+        <div class="arrow-line"></div>
+        <div class="arrow-label">SSH Brute Force</div>
+        <div class="arrow-label">port 22/TCP</div>
+      </div>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:0">
+        <div class="arch-node victim">
+          <div class="icon">🖥️</div>
+          <div class="label">VICTIM SERVER</div>
+          <div class="ip">192.168.1.10</div>
+          <div class="os">Ubuntu 22.04</div>
+          <div style="font-family:var(--mono);font-size:.5rem;color:var(--amber);margin-top:4px">/var/log/auth.log</div>
+        </div>
+        <div class="arrow-down">
+          <div class="arrow-down-line"></div>
+        </div>
+        <div style="font-family:var(--mono);font-size:.52rem;color:var(--textdim);margin-bottom:4px">Universal Forwarder · :9997</div>
+      </div>
+      <div class="arch-arrow">
+        <div class="arrow-line" style="background:linear-gradient(90deg,var(--green),var(--cyan))"></div>
+        <div class="arrow-label">Log Forwarding</div>
+        <div class="arrow-label">Splunk UF</div>
+      </div>
+      <div class="arch-node splunk">
+        <div class="icon">📊</div>
+        <div class="label">SPLUNK SERVER</div>
+        <div class="ip">192.168.1.30</div>
+        <div class="os">Splunk Enterprise</div>
+        <div style="font-family:var(--mono);font-size:.5rem;color:var(--green);margin-top:4px">:8000 · :9997</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════ PAGE: LIVE LOGS ═══════════════ -->
+<div class="page" id="page-logs">
+  <div class="section-head">LIVE AUTH.LOG STREAM — /var/log/auth.log</div>
+  <div class="panel" style="margin-bottom:18px">
+    <div class="panel-head">
+      <div class="panel-title"><span class="icon">📋</span> AUTHENTICATION LOG FEED</div>
+      <div class="btn-row">
+        <button class="btn btn-sm" style="background:rgba(0,0,0,0.3);border-color:var(--border);color:var(--textdim)" onclick="toggleAutoScroll(this)">AUTO-SCROLL: ON</button>
+        <button class="btn btn-cyan btn-sm" onclick="clearLogs()">CLEAR</button>
+        <span style="font-family:var(--mono);font-size:.6rem;color:var(--textdim)" id="logCount">0 events</span>
+      </div>
+    </div>
+    <div class="log-feed" id="mainLogFeed" style="max-height:500px">
+      <div class="log-entry">
+        <span class="log-ts">── SYSTEM ──────────</span>
+        <span class="log-msg info">SSH monitoring active. Waiting for authentication events...</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Log stats -->
+  <div class="grid-3">
+    <div class="panel">
+      <div class="panel-head"><div class="panel-title">📊 LOG STATISTICS</div></div>
+      <div class="panel-body">
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div style="display:flex;justify-content:space-between;font-family:var(--mono);font-size:.62rem;padding:5px 0;border-bottom:1px solid var(--border)"><span style="color:var(--textdim)">Total Events</span><span style="color:var(--cyan)" id="lgTotal">0</span></div>
+          <div style="display:flex;justify-content:space-between;font-family:var(--mono);font-size:.62rem;padding:5px 0;border-bottom:1px solid var(--border)"><span style="color:var(--textdim)">Failed Password</span><span style="color:var(--red)" id="lgFailed">0</span></div>
+          <div style="display:flex;justify-content:space-between;font-family:var(--mono);font-size:.62rem;padding:5px 0;border-bottom:1px solid var(--border)"><span style="color:var(--textdim)">Accepted Password</span><span style="color:var(--green)" id="lgAccepted">0</span></div>
+          <div style="display:flex;justify-content:space-between;font-family:var(--mono);font-size:.62rem;padding:5px 0"><span style="color:var(--textdim)">Invalid User</span><span style="color:var(--amber)" id="lgInvalid">0</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><div class="panel-title">🔍 SPLUNK QUERY</div></div>
+      <div class="panel-body">
+        <div style="font-size:.7rem;color:var(--textdim);margin-bottom:8px;font-family:var(--body)">Verify logs in Splunk with this search:</div>
+        <div class="code-block" style="font-size:.6rem">
+<span class="kw">index</span>=* <span class="kw">sourcetype</span>=syslog
+<span class="str">"Failed password"</span>
+<span class="op">|</span> <span class="fn">timechart</span> <span class="fn">count</span></div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><div class="panel-title">⚡ EXAMPLE LOG ENTRY</div></div>
+      <div class="panel-body">
+        <div style="font-family:var(--mono);font-size:.58rem;color:var(--textdim);margin-bottom:8px">auth.log raw format:</div>
+        <div class="code-block" style="font-size:.58rem;white-space:pre-wrap">
+<span class="cm">Mar 12 14:23:01 ubuntu sshd[1234]:</span>
+<span class="str">Failed password</span> for <span class="amber">root</span>
+from <span class="red">192.168.1.20</span> port 52234 <span class="kw">ssh2</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════ PAGE: SPL QUERIES ═══════════════ -->
+<div class="page" id="page-spl">
+  <div class="section-head">SPL QUERY REFERENCE — SPLUNK SEARCH PROCESSING LANGUAGE</div>
+  <div class="panel">
+    <div class="spl-tabs">
+      <div class="spl-tab active" onclick="splTab('q1',this)">BASIC DETECT</div>
+      <div class="spl-tab" onclick="splTab('q2',this)">COUNT BY IP</div>
+      <div class="spl-tab" onclick="splTab('q3',this)">EXTRACT IP</div>
+      <div class="spl-tab" onclick="splTab('q4',this)">BRUTE PATTERN</div>
+      <div class="spl-tab" onclick="splTab('q5',this)">TIME CHART</div>
+      <div class="spl-tab" onclick="splTab('q6',this)">USERNAME</div>
+      <div class="spl-tab" onclick="splTab('q7',this)">BONUS: SUCCESS</div>
+    </div>
+
+    <div class="spl-content active" id="spl-q1">
+      <div class="spl-desc">🔍 <strong>Basic SSH failure detection</strong> — Searches all indexes for failed password events. The simplest starting point for SSH brute-force detection.</div>
+      <div class="code-block">
+<button class="copy-btn" onclick="copyCode(this)">COPY</button><span class="kw">index</span>=* <span class="str">"Failed password"</span>
+
+<span class="cm">-- Returns all log events containing "Failed password"</span>
+<span class="cm">-- Each result = one failed SSH login attempt</span>
+<span class="cm">-- Check sourcetype=syslog for Linux auth logs</span></div>
+    </div>
+
+    <div class="spl-content" id="spl-q2">
+      <div class="spl-desc">📊 <strong>Count failed attempts per IP</strong> — Groups results by source IP and counts attempts. Sorted descending to show highest-volume attackers first.</div>
+      <div class="code-block">
+<button class="copy-btn" onclick="copyCode(this)">COPY</button><span class="kw">index</span>=* <span class="str">"Failed password"</span>
+<span class="op">|</span> <span class="fn">stats</span> <span class="fn">count</span> <span class="kw">by</span> src_ip
+<span class="op">|</span> <span class="fn">sort</span> -count
+
+<span class="cm">-- stats count by src_ip: groups events by source IP</span>
+<span class="cm">-- sort -count: descending order (most attempts first)</span></div>
+    </div>
+
+    <div class="spl-content" id="spl-q3">
+      <div class="spl-desc">🔎 <strong>Extract IP with rex</strong> — Uses regex to parse the IP address from raw log text when field extraction isn't automatic. Essential for unstructured logs.</div>
+      <div class="code-block">
+<button class="copy-btn" onclick="copyCode(this)">COPY</button><span class="kw">index</span>=* <span class="str">"Failed password"</span>
+<span class="op">|</span> <span class="fn">rex</span> <span class="str">"from (?&lt;src_ip&gt;\d+\.\d+\.\d+\.\d+)"</span>
+<span class="op">|</span> <span class="fn">stats</span> <span class="fn">count</span> <span class="kw">by</span> src_ip
+<span class="op">|</span> <span class="fn">sort</span> -count
+
+<span class="cm">-- rex: named capture group extracts IP from log string</span>
+<span class="cm">-- (?&lt;src_ip&gt;...) creates field 'src_ip' dynamically</span></div>
+    </div>
+
+    <div class="spl-content" id="spl-q4">
+      <div class="spl-desc">🚨 <strong>Detect brute-force pattern</strong> — Core detection logic. Buckets time into 5-minute windows and flags any IP with more than 10 failures — classic brute-force signature.</div>
+      <div class="code-block">
+<button class="copy-btn" onclick="copyCode(this)">COPY</button><span class="kw">index</span>=* <span class="str">"Failed password"</span>
+<span class="op">|</span> <span class="fn">rex</span> <span class="str">"from (?&lt;src_ip&gt;\d+\.\d+\.\d+\.\d+)"</span>
+<span class="op">|</span> <span class="fn">bucket</span> _time <span class="kw">span</span>=5m
+<span class="op">|</span> <span class="fn">stats</span> <span class="fn">count</span> <span class="kw">by</span> _time src_ip
+<span class="op">|</span> <span class="fn">where</span> count &gt; 10
+
+<span class="cm">-- bucket _time span=5m: groups into 5-min windows</span>
+<span class="cm">-- where count > 10: only show IPs with 10+ failures</span>
+<span class="cm">-- Threshold can be tuned: 5 (strict) to 50 (loose)</span></div>
+    </div>
+
+    <div class="spl-content" id="spl-q5">
+      <div class="spl-desc">📈 <strong>Time chart of attempts</strong> — Visualize attack waves over time. Perfect for Splunk Dashboard Panel 1 — use Line Chart visualization to see spike patterns.</div>
+      <div class="code-block">
+<button class="copy-btn" onclick="copyCode(this)">COPY</button><span class="kw">index</span>=* <span class="str">"Failed password"</span>
+<span class="op">|</span> <span class="fn">timechart</span> <span class="fn">count</span> <span class="kw">span</span>=1m
+
+<span class="cm">-- timechart: automatically creates time-series chart</span>
+<span class="cm">-- span=1m: 1-minute buckets (adjust as needed)</span>
+<span class="cm">-- Splunk Dashboard: Visualization → Line Chart</span></div>
+    </div>
+
+    <div class="spl-content" id="spl-q6">
+      <div class="spl-desc">👤 <strong>Targeted usernames</strong> — Extracts and counts which usernames are being targeted most. Helps identify credential stuffing against specific accounts.</div>
+      <div class="code-block">
+<button class="copy-btn" onclick="copyCode(this)">COPY</button><span class="kw">index</span>=* <span class="str">"Failed password"</span>
+<span class="op">|</span> <span class="fn">rex</span> <span class="str">"for (?&lt;user&gt;\w+) from"</span>
+<span class="op">|</span> <span class="fn">stats</span> <span class="fn">count</span> <span class="kw">by</span> user
+<span class="op">|</span> <span class="fn">sort</span> -count
+<span class="op">|</span> <span class="fn">head</span> 10
+
+<span class="cm">-- Extracts username field from "for USERNAME from"</span>
+<span class="cm">-- head 10: top 10 most targeted accounts</span></div>
+    </div>
+
+    <div class="spl-content" id="spl-q7">
+      <div class="spl-desc">⚡ <strong>BONUS: Successful login after brute force</strong> — The most dangerous pattern. Detects attackers who succeeded after repeated failures — indicates a compromised account!</div>
+      <div class="code-block">
+<button class="copy-btn" onclick="copyCode(this)">COPY</button><span class="kw">index</span>=* (<span class="str">"Failed password"</span> <span class="kw">OR</span> <span class="str">"Accepted password"</span>)
+<span class="op">|</span> <span class="fn">rex</span> <span class="str">"from (?&lt;src_ip&gt;\d+\.\d+\.\d+\.\d+)"</span>
+<span class="op">|</span> <span class="fn">stats</span>
+    <span class="fn">count</span>(<span class="fn">eval</span>(<span class="fn">searchmatch</span>(<span class="str">"Failed password"</span>)))  <span class="kw">as</span> failed
+    <span class="fn">count</span>(<span class="fn">eval</span>(<span class="fn">searchmatch</span>(<span class="str">"Accepted password"</span>))) <span class="kw">as</span> success
+    <span class="kw">by</span> src_ip
+<span class="op">|</span> <span class="fn">where</span> failed &gt; 10 <span class="kw">AND</span> success &gt; 0
+
+<span class="cm">-- 🚨 CRITICAL: This = confirmed account compromise!</span>
+<span class="cm">-- An IP that failed 10+ times but then succeeded</span>
+<span class="cm">-- Immediately escalate as Severity: CRITICAL</span></div>
+    </div>
+  </div>
+
+  <!-- Alert Query -->
+  <div class="spacer"></div>
+  <div class="section-head">SPLUNK ALERT CONFIGURATION</div>
+  <div class="panel">
+    <div class="panel-head"><div class="panel-title"><span class="icon">🚨</span> THRESHOLD ALERT — SSH BRUTE FORCE DETECTED</div></div>
+    <div style="padding:16px">
+      <div class="grid-2" style="margin-bottom:0">
+        <div>
+          <div class="spl-desc" style="margin-bottom:10px">Alert fires when any IP exceeds <strong>20 failed attempts</strong>. Navigate to: <span style="color:var(--cyan)">Save As → Alert</span></div>
+          <div class="code-block">
+<button class="copy-btn" onclick="copyCode(this)">COPY</button><span class="kw">index</span>=* <span class="str">"Failed password"</span>
+<span class="op">|</span> <span class="fn">rex</span> <span class="str">"from (?&lt;src_ip&gt;\d+\.\d+\.\d+\.\d+)"</span>
+<span class="op">|</span> <span class="fn">stats</span> <span class="fn">count</span> <span class="kw">by</span> src_ip
+<span class="op">|</span> <span class="fn">where</span> count &gt; 20
+
+<span class="cm">-- Alert Name: SSH Brute Force Detected</span>
+<span class="cm">-- Trigger: If results > 0</span>
+<span class="cm">-- Actions: Email / Slack / Webhook</span></div>
+        </div>
+        <div>
+          <div style="background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:8px;padding:14px;font-family:var(--mono);font-size:.6rem">
+            <div style="color:var(--cyan);margin-bottom:10px;letter-spacing:.08em">ALERT SETTINGS</div>
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border)"><span style="color:var(--textdim)">Alert Name</span><span style="color:var(--green)">SSH Brute Force</span></div>
+              <div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border)"><span style="color:var(--textdim)">Trigger When</span><span style="color:var(--amber)">Results &gt; 0</span></div>
+              <div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border)"><span style="color:var(--textdim)">Schedule</span><span style="color:var(--cyan)">Every 5 minutes</span></div>
+              <div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border)"><span style="color:var(--textdim)">Severity</span><span style="color:var(--red)">HIGH</span></div>
+              <div style="display:flex;justify-content:space-between;padding:4px 0"><span style="color:var(--textdim)">Actions</span><span style="color:var(--green)">Email · Slack · Webhook</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════ PAGE: ALERTS ═══════════════ -->
+<div class="page" id="page-alerts">
+  <div class="section-head">ACTIVE SECURITY ALERTS</div>
+  <div class="grid-big-small">
+    <div>
+      <div id="alertFeed">
+        <div style="text-align:center;padding:40px;font-family:var(--mono);font-size:.65rem;color:var(--textdim);border:1px dashed var(--border);border-radius:8px">
+          🔒 No alerts triggered yet. Start the attack simulation to generate alerts.
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="panel" style="margin-bottom:16px">
+        <div class="panel-head"><div class="panel-title">📊 ALERT SUMMARY</div></div>
+        <div class="panel-body" style="display:flex;flex-direction:column;gap:8px">
+          <div style="display:flex;justify-content:space-between;font-family:var(--mono);font-size:.62rem;padding:5px 0;border-bottom:1px solid var(--border)"><span style="color:var(--textdim)">Critical</span><span style="color:var(--red)" id="alertCrit">0</span></div>
+          <div style="display:flex;justify-content:space-between;font-family:var(--mono);font-size:.62rem;padding:5px 0;border-bottom:1px solid var(--border)"><span style="color:var(--textdim)">High</span><span style="color:var(--amber)" id="alertHigh">0</span></div>
+          <div style="display:flex;justify-content:space-between;font-family:var(--mono);font-size:.62rem;padding:5px 0"><span style="color:var(--textdim)">Medium</span><span style="color:var(--cyan)" id="alertMed">0</span></div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><div class="panel-title">🔔 NOTIFICATION CHANNELS</div></div>
+        <div class="panel-body" style="display:flex;flex-direction:column;gap:8px">
+          <div style="display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:.6rem">
+            <div class="dot live" style="animation:none"></div>
+            <span style="color:var(--green)">Email — SOC Team</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:.6rem">
+            <div class="dot live" style="animation:none"></div>
+            <span style="color:var(--green)">Slack — #security-alerts</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:.6rem">
+            <div class="dot" style="background:var(--textdim);animation:none"></div>
+            <span style="color:var(--textdim)">PagerDuty — Offline</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:.6rem">
+            <div class="dot live" style="animation:none"></div>
+            <span style="color:var(--green)">Webhook — SIEM</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════ PAGE: SETUP ═══════════════ -->
+<div class="page" id="page-setup">
+  <div class="section-head">LAB SETUP GUIDE — STEP BY STEP</div>
+
+  <div class="step-section">
+    <div class="step-header" onclick="toggleStep(this)">
+      <div style="display:flex;align-items:center">
+        <div class="step-num done">✓</div>
+        STEP 1 — INSTALL SPLUNK ENTERPRISE
+      </div>
+      <div class="chevron">▶</div>
+    </div>
+    <div class="step-body">
+      <p>Download and install Splunk Enterprise on your Splunk server (192.168.1.30). Splunk runs on port 8000 by default.</p>
+      <div class="cmd">wget -O splunk.tgz https://download.splunk.com/products/splunk/releases/9.0.0/linux/splunk.tgz</div>
+      <div class="cmd">tar -xvzf splunk.tgz && cd splunk/bin</div>
+      <div class="cmd">./splunk start --accept-license</div>
+      <p style="margin-top:10px">Access Splunk Web UI at: <span style="color:var(--cyan);font-family:var(--mono)">http://192.168.1.30:8000</span></p>
+    </div>
+  </div>
+
+  <div class="step-section">
+    <div class="step-header" onclick="toggleStep(this)">
+      <div style="display:flex;align-items:center">
+        <div class="step-num done">✓</div>
+        STEP 2 — INSTALL SPLUNK UNIVERSAL FORWARDER (VICTIM)
+      </div>
+      <div class="chevron">▶</div>
+    </div>
+    <div class="step-body">
+      <p>Install the Universal Forwarder on your Ubuntu victim machine (192.168.1.10). This sends logs to Splunk.</p>
+      <div class="cmd">wget https://download.splunk.com/products/universalforwarder/releases/9.0.0/linux/splunkforwarder.tgz</div>
+      <div class="cmd">tar -xvzf splunkforwarder.tgz && cd splunkforwarder/bin</div>
+      <div class="cmd">./splunk start --accept-license</div>
+      <div class="cmd">./splunk add forward-server 192.168.1.30:9997</div>
+      <p style="margin-top:10px">Enable receiving on Splunk server: <span style="color:var(--cyan);font-family:var(--mono)">Settings → Forwarding and Receiving → New Port → 9997</span></p>
+    </div>
+  </div>
+
+  <div class="step-section">
+    <div class="step-header" onclick="toggleStep(this)">
+      <div style="display:flex;align-items:center">
+        <div class="step-num done">✓</div>
+        STEP 3 — FORWARD AUTHENTICATION LOGS
+      </div>
+      <div class="chevron">▶</div>
+    </div>
+    <div class="step-body">
+      <p>Tell the Universal Forwarder to monitor the SSH authentication log file:</p>
+      <div class="cmd">./splunk add monitor /var/log/auth.log</div>
+      <div class="cmd">./splunk restart</div>
+      <p style="margin-top:10px">Verify in Splunk: <span style="color:var(--cyan);font-family:var(--mono)">index=* sourcetype=syslog "sshd"</span></p>
+    </div>
+  </div>
+
+  <div class="step-section">
+    <div class="step-header" onclick="toggleStep(this)">
+      <div style="display:flex;align-items:center">
+        <div class="step-num">4</div>
+        STEP 4 — SIMULATE ATTACK FROM KALI LINUX
+      </div>
+      <div class="chevron">▶</div>
+    </div>
+    <div class="step-body">
+      <p>On your Kali Linux machine (192.168.1.20), first scan the target then launch the brute force:</p>
+      <div class="cmd">nmap -p 22 192.168.1.10</div>
+      <div class="cmd">msfconsole</div>
+      <div class="cmd">use auxiliary/scanner/ssh/ssh_login</div>
+      <div class="cmd">set RHOSTS 192.168.1.10</div>
+      <div class="cmd">set USER_FILE users.txt</div>
+      <div class="cmd">set PASS_FILE passwords.txt</div>
+      <div class="cmd">set THREADS 10</div>
+      <div class="cmd">run</div>
+      <p style="margin-top:10px">Logs will start appearing in <span style="color:var(--amber);font-family:var(--mono)">/var/log/auth.log</span> and forwarded to Splunk.</p>
+    </div>
+  </div>
+
+  <div class="step-section">
+    <div class="step-header" onclick="toggleStep(this)">
+      <div style="display:flex;align-items:center">
+        <div class="step-num">5</div>
+        STEP 5 — BUILD SPLUNK DASHBOARD
+      </div>
+      <div class="chevron">▶</div>
+    </div>
+    <div class="step-body">
+      <p>In Splunk Web UI, go to <span style="color:var(--cyan);font-family:var(--mono)">Dashboards → Create New Dashboard</span> and add these panels:</p>
+      <p><strong style="color:var(--amber)">Panel 1:</strong> Failed SSH Attempts Over Time — <span style="color:var(--green);font-family:var(--mono)">index=* "Failed password" | timechart count</span> → Line Chart</p>
+      <p><strong style="color:var(--amber)">Panel 2:</strong> Top Attacking IPs — rex extract + stats count by src_ip → Bar Chart</p>
+      <p><strong style="color:var(--amber)">Panel 3:</strong> Targeted Usernames — rex "for (?&lt;user&gt;\w+)" + stats count by user</p>
+    </div>
+  </div>
+
+  <div class="step-section">
+    <div class="step-header" onclick="toggleStep(this)">
+      <div style="display:flex;align-items:center">
+        <div class="step-num">6</div>
+        STEP 6 — CONFIGURE SPLUNK ALERTS
+      </div>
+      <div class="chevron">▶</div>
+    </div>
+    <div class="step-body">
+      <p>Run the brute-force detection SPL query, then: <span style="color:var(--cyan);font-family:var(--mono)">Save As → Alert</span></p>
+      <div class="cmd">index=* "Failed password" | rex "from (?&lt;src_ip&gt;...)" | stats count by src_ip | where count > 20</div>
+      <p style="margin-top:10px">Set trigger to <span style="color:var(--amber)">If results &gt; 0</span>, schedule every 5 minutes, add Email/Slack actions.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════ PAGE: RESUME ═══════════════ -->
+<div class="page" id="page-resume">
+  <div class="section-head">PORTFOLIO & RESUME CONTENT</div>
+
+  <div class="resume-box" style="margin-bottom:20px">
+    <div class="resume-title">SSH BRUTE-FORCE DETECTION USING SPLUNK SIEM</div>
+    <div class="resume-item"><p>Simulated SSH brute-force attacks using Kali Linux and Metasploit Framework's <em>auxiliary/scanner/ssh/ssh_login</em> module against an Ubuntu target system</p></div>
+    <div class="resume-item"><p>Ingested Linux authentication logs (<em>/var/log/auth.log</em>) into Splunk Enterprise using Universal Forwarder with real-time streaming via port 9997</p></div>
+    <div class="resume-item"><p>Developed SPL queries using <em>rex</em>, <em>stats</em>, <em>bucket</em>, and <em>timechart</em> commands to detect credential abuse patterns and extract attacker IPs dynamically</p></div>
+    <div class="resume-item"><p>Built multi-panel Splunk dashboards visualizing failed login spikes, top attacking IPs (bar chart), and targeted username distribution over time</p></div>
+    <div class="resume-item"><p>Implemented threshold-based automated alerts (trigger: &gt;20 failed attempts per IP in 5 min) with Slack and email notification actions</p></div>
+    <div class="resume-item"><p>Created bonus detection rule to identify successful logins following brute-force attempts — flagging potential account compromise events</p></div>
+  </div>
+
+  <div class="section-head">SKILLS DEMONSTRATED</div>
+  <div class="panel">
+    <div class="skills-grid">
+      <div class="skill-tag g">SIEM Monitoring</div>
+      <div class="skill-tag g">Splunk Enterprise</div>
+      <div class="skill-tag g">SPL Querying</div>
+      <div class="skill-tag c">Log Analysis</div>
+      <div class="skill-tag c">Threat Detection</div>
+      <div class="skill-tag c">Security Alerting</div>
+      <div class="skill-tag a">Linux Security</div>
+      <div class="skill-tag a">Metasploit Framework</div>
+      <div class="skill-tag a">Nmap Scanning</div>
+      <div class="skill-tag r">Brute-Force Detection</div>
+      <div class="skill-tag r">Incident Response</div>
+      <div class="skill-tag p">SOC Operations</div>
+      <div class="skill-tag p">Blue Team Defense</div>
+      <div class="skill-tag c">Network Forensics</div>
+    </div>
+  </div>
+
+  <div class="spacer"></div>
+  <div class="section-head">TOOLS USED</div>
+  <div class="grid-3">
+    <div class="panel"><div class="panel-head"><div class="panel-title">📊 SPLUNK ENTERPRISE</div></div><div class="panel-body" style="font-size:.7rem;color:var(--text);line-height:1.7">Industry-leading SIEM platform. Used for log ingestion, SPL querying, dashboard building, and automated alerting. Free trial available at splunk.com.</div></div>
+    <div class="panel"><div class="panel-head"><div class="panel-title">💻 KALI LINUX</div></div><div class="panel-body" style="font-size:.7rem;color:var(--text);line-height:1.7">Penetration testing distribution. Used as the attacker machine. Includes Metasploit, Nmap, Hydra, and 600+ security tools pre-installed.</div></div>
+    <div class="panel"><div class="panel-head"><div class="panel-title">⚔️ METASPLOIT FRAMEWORK</div></div><div class="panel-body" style="font-size:.7rem;color:var(--text);line-height:1.7">World's most widely used penetration testing framework. The <em>ssh_login</em> auxiliary module performs automated credential stuffing against SSH services.</div></div>
+  </div>
+</div>
+
+</main>
+
+<script>
+// ═══════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════
+const state = {
+  failed: 0, ips: {}, alerts: 0, success: 0, users: {},
+  logEntries: [], alertEntries: [],
+  isAttacking: false, attackInterval: null,
+  attackCount: 0, attackTotal: 0,
+  logCount: 0, lgFailed: 0, lgAccepted: 0, lgInvalid: 0,
+  alertCrit: 0, alertHigh: 0, alertMed: 0,
+  timeData: Array(12).fill(0),
+  alertsTriggered: new Set(),
+  autoScroll: true,
+};
+
+const ATTACKER_IPS = ['192.168.1.20','10.0.0.45','172.16.8.99','45.33.32.156','198.51.100.7'];
+const TARGET_USERS = ['root','admin','ubuntu','user','deploy','git','postgres','pi','test','oracle'];
+const PASSWORDS = ['password','123456','admin','root','letmein','qwerty','passwd','test123'];
+
+// ═══════════════════════════════════════
+// CLOCK
+// ═══════════════════════════════════════
+function updateClock(){
+  const n=new Date();
+  document.getElementById('clock').textContent=
+    n.toTimeString().slice(0,8)+' UTC';
+}
+setInterval(updateClock,1000); updateClock();
+
+// ═══════════════════════════════════════
+// PAGE SWITCHING
+// ═══════════════════════════════════════
+function switchPage(id, el){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.getElementById('page-'+id).classList.add('active');
+  el.classList.add('active');
+}
+
+// ═══════════════════════════════════════
+// SPL TABS
+// ═══════════════════════════════════════
+function splTab(id, el){
+  document.querySelectorAll('.spl-tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.spl-content').forEach(c=>c.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('spl-'+id).classList.add('active');
+}
+
+// ═══════════════════════════════════════
+// COPY CODE
+// ═══════════════════════════════════════
+function copyCode(btn){
+  const block = btn.parentElement;
+  const text = block.textContent.replace('COPY','').replace('COPIED!','').trim();
+  navigator.clipboard.writeText(text).then(()=>{
+    btn.textContent='COPIED!'; btn.classList.add('copied');
+    setTimeout(()=>{btn.textContent='COPY';btn.classList.remove('copied')},2000);
+  });
+}
+
+// ═══════════════════════════════════════
+// STEP TOGGLE
+// ═══════════════════════════════════════
+function toggleStep(header){
+  const body=header.nextElementSibling;
+  const chevron=header.querySelector('.chevron');
+  const isOpen=body.classList.contains('open');
+  body.classList.toggle('open',!isOpen);
+  chevron.classList.toggle('open',!isOpen);
+}
+
+// ═══════════════════════════════════════
+// USER CHECKBOXES
+// ═══════════════════════════════════════
+(function initCheckboxes(){
+  const c=document.getElementById('userCheckboxes');
+  TARGET_USERS.slice(0,6).forEach((u,i)=>{
+    const wrap=document.createElement('label');
+    wrap.style.cssText='display:flex;align-items:center;gap:5px;cursor:pointer;font-family:var(--mono);font-size:.6rem;color:var(--textdim);padding:4px 8px;border:1px solid var(--border);border-radius:4px;background:rgba(0,0,0,0.3)';
+    const cb=document.createElement('input');
+    cb.type='checkbox'; cb.value=u; cb.checked=true;
+    cb.style.accentColor='var(--red)';
+    wrap.appendChild(cb); wrap.appendChild(document.createTextNode(u));
+    c.appendChild(wrap);
+  });
+})();
+
+function getSelectedUsers(){
+  const cbs=document.querySelectorAll('#userCheckboxes input:checked');
+  return Array.from(cbs).map(c=>c.value);
+}
+
+// ═══════════════════════════════════════
+// NMAP SIMULATION
+// ═══════════════════════════════════════
+function runNmap(){
+  const out=document.getElementById('nmapOutput');
+  out.innerHTML='<span class="cm">Starting Nmap 7.94...</span>';
+  const steps=[
+    {t:300, html:'<span class="cm">Nmap scan report for 192.168.1.10</span>'},
+    {t:600, html:'<span class="cm">Host is up (0.00042s latency).</span>'},
+    {t:900, html:'PORT   STATE  SERVICE'},
+    {t:1200,html:'<span class="green">22/tcp  open   ssh</span>'},
+    {t:1500,html:'<span class="cm">Service: OpenSSH 8.9p1 Ubuntu 3ubuntu0.6</span>'},
+    {t:1800,html:'<span class="amber">MAC Address: 08:00:27:A1:B2:C3 (VirtualBox)</span>'},
+    {t:2100,html:'<span class="cm">Nmap done: 1 IP address (1 host up) scanned in 1.23s</span>'},
+    {t:2400,html:'<span class="red">🎯 SSH port 22 OPEN — Target confirmed</span>'},
+  ];
+  steps.forEach(s=>{
+    setTimeout(()=>{
+      out.innerHTML+='\n'+s.html;
+    },s.t);
+  });
+}
+
+// ═══════════════════════════════════════
+// LOG GENERATION
+// ═══════════════════════════════════════
+function randItem(arr){return arr[Math.floor(Math.random()*arr.length)]}
+function randPort(){return 10000+Math.floor(Math.random()*55535)}
+function now(){
+  return new Date().toLocaleString('en-GB',{
+    month:'short',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'
+  }).replace(',','');
+}
+
+function makeLog(type, ip, user){
+  const port=randPort();
+  const ts=now();
+  const pid=1000+Math.floor(Math.random()*9000);
+  switch(type){
+    case 'fail':  return {ts,host:'ubuntu',pid,msg:`Failed password for ${user} from ${ip} port ${port} ssh2`,type:'fail'};
+    case 'accept':return {ts,host:'ubuntu',pid,msg:`Accepted password for ${user} from ${ip} port ${port} ssh2`,type:'success'};
+    case 'invalid':return {ts,host:'ubuntu',pid,msg:`Invalid user ${user} from ${ip} port ${port}`,type:'warn'};
+    case 'conn': return {ts,host:'ubuntu',pid,msg:`Connection from ${ip} port ${port} on 192.168.1.10 port 22 rdomain ""`,type:'info'};
+  }
+}
+
+function addLog(entry, feeds){
+  state.logEntries.unshift(entry);
+  state.logCount++;
+  if(entry.type==='fail') state.lgFailed++;
+  else if(entry.type==='success') state.lgAccepted++;
+  else if(entry.type==='warn') state.lgInvalid++;
+  document.getElementById('lgTotal').textContent=state.logCount;
+  document.getElementById('lgFailed').textContent=state.lgFailed;
+  document.getElementById('lgAccepted').textContent=state.lgAccepted;
+  document.getElementById('lgInvalid').textContent=state.lgInvalid;
+  document.getElementById('logCount').textContent=state.logCount+' events';
+
+  const html=`<div class="log-entry">
+    <span class="log-ts">${entry.ts}</span>
+    <span class="log-host">${entry.host}</span>
+    <span class="log-msg ${entry.type}">${entry.msg}</span>
+  </div>`;
+
+  feeds.forEach(feedId=>{
+    const feed=document.getElementById(feedId);
+    if(!feed) return;
+    feed.insertAdjacentHTML('afterbegin',html);
+    // trim to 200 entries
+    while(feed.children.length>200) feed.removeChild(feed.lastChild);
+  });
+}
+
+// ═══════════════════════════════════════
+// ATTACK SIMULATION
+// ═══════════════════════════════════════
+let logRateCounter=0;
+let logRateInterval=null;
+
+function startAttack(){
+  if(state.isAttacking) return;
+  state.isAttacking=true;
+  document.getElementById('btnAttack').disabled=true;
+  document.getElementById('btnAttack').textContent='ATTACKING...';
+
+  const intensity=parseInt(document.getElementById('intensityRange').value);
+  const delay=[800,450,250,120,60][intensity-1];
+  const total=[30,60,100,150,200][intensity-1];
+  const selectedUsers=getSelectedUsers();
+  if(!selectedUsers.length) { alert('Select at least one target user'); stopAttack(); return; }
+
+  state.attackTotal=total; state.attackCount=0;
+
+  // log rate counter
+  logRateInterval=setInterval(()=>{
+    document.getElementById('logRate').textContent=logRateCounter+'/sec';
+    logRateCounter=0;
+  },1000);
+
+  state.attackInterval=setInterval(()=>{
+    if(state.attackCount>=total){ finishAttack(); return; }
+
+    const ip=randItem(ATTACKER_IPS);
+    const user=randItem(selectedUsers);
+    const r=Math.random();
+
+    let entry;
+    if(r<0.04 && state.attackCount>20){
+      // rare success
+      entry=makeLog('accept',ip,user);
+      state.success++;
+      document.getElementById('st-success').textContent=state.success;
+    } else if(r<0.12){
+      entry=makeLog('invalid',ip,user);
+    } else if(r<0.18){
+      entry=makeLog('conn',ip,user);
+    } else {
+      entry=makeLog('fail',ip,user);
+      state.failed++;
+      state.ips[ip]=(state.ips[ip]||0)+1;
+      state.users[user]=(state.users[user]||0)+1;
+    }
+
+    addLog(entry, ['mainLogFeed','dashLogFeed']);
+    logRateCounter++;
+    state.attackCount++;
+
+    // update progress
+    const pct=Math.round((state.attackCount/total)*100);
+    document.getElementById('simProgress').style.width=pct+'%';
+    document.getElementById('simProgressLabel').textContent=state.attackCount+' / '+total+' attempts';
+    document.getElementById('simStatus').textContent='⚡ ATTACK IN PROGRESS — '+pct+'% complete';
+
+    updateStats();
+    updateCharts();
+    checkAlerts();
+  }, delay);
+}
+
+function stopAttack(){
+  clearInterval(state.attackInterval);
+  clearInterval(logRateInterval);
+  state.isAttacking=false;
+  document.getElementById('btnAttack').disabled=false;
+  document.getElementById('btnAttack').textContent='▶ LAUNCH ATTACK';
+  document.getElementById('simStatus').textContent='Stopped by user';
+  document.getElementById('logRate').textContent='0/sec';
+}
+
+function finishAttack(){
+  stopAttack();
+  document.getElementById('simStatus').textContent='✓ Attack simulation complete';
+  document.getElementById('simProgress').style.width='100%';
+  addLog({ts:now(),host:'SYSTEM',pid:0,msg:'Attack simulation finished. All attempts logged in Splunk.',type:'info'},['mainLogFeed','dashLogFeed']);
+}
+
+function resetAll(){
+  stopAttack();
+  Object.assign(state,{
+    failed:0,ips:{},alerts:0,success:0,users:{},
+    logEntries:[],alertEntries:[],
+    attackCount:0,attackTotal:0,
+    logCount:0,lgFailed:0,lgAccepted:0,lgInvalid:0,
+    alertCrit:0,alertHigh:0,alertMed:0,
+    timeData:Array(12).fill(0),
+    alertsTriggered:new Set(),
+    autoScroll:true,
+  });
+  ['mainLogFeed','dashLogFeed'].forEach(id=>{
+    const f=document.getElementById(id);
+    f.innerHTML='<div class="log-entry"><span class="log-ts">─── System Reset ───</span><span class="log-msg info">Monitoring active. Ready for new simulation.</span></div>';
+  });
+  document.getElementById('alertFeed').innerHTML='<div style="text-align:center;padding:40px;font-family:var(--mono);font-size:.65rem;color:var(--textdim);border:1px dashed var(--border);border-radius:8px">🔒 No alerts triggered yet.</div>';
+  document.getElementById('ipTableBody').innerHTML='<tr><td colspan="3" style="text-align:center;color:var(--textdim);padding:20px;font-family:var(--mono);font-size:.6rem">No attacks detected.</td></tr>';
+  document.getElementById('userBars').innerHTML='<div style="text-align:center;color:var(--textdim);padding:30px 10px;font-family:var(--mono);font-size:.6rem">No data yet.</div>';
+  document.getElementById('simProgress').style.width='0%';
+  document.getElementById('simStatus').textContent='Ready to launch';
+  document.getElementById('simProgressLabel').textContent='0 / 0 attempts';
+  document.getElementById('alertBadge').textContent='0';
+  document.getElementById('alertDot').style.opacity='0';
+  document.getElementById('alertStatusText').textContent='NO ALERTS';
+  document.getElementById('alertCrit').textContent='0';
+  document.getElementById('alertHigh').textContent='0';
+  document.getElementById('alertMed').textContent='0';
+  ['st-failed','st-ips','st-alerts','st-success','st-users'].forEach(id=>{
+    document.getElementById(id).textContent='0';
+  });
+  updateThreat(0);
+  drawLineChart();
+  drawBarChart();
+}
+
+// ═══════════════════════════════════════
+// UPDATE STATS
+// ═══════════════════════════════════════
+function updateStats(){
+  document.getElementById('st-failed').textContent=state.failed;
+  document.getElementById('st-ips').textContent=Object.keys(state.ips).length;
+  document.getElementById('st-users').textContent=Object.keys(state.users).length;
+  document.getElementById('st-alerts').textContent=state.alerts;
+
+  // trend
+  const recent=state.timeData[state.timeData.length-1]||0;
+  document.getElementById('st-failed-trend').textContent='▲ +'+recent+' last min';
+
+  // ip trend
+  const ipCount=Object.keys(state.ips).length;
+  document.getElementById('st-ip-trend').textContent=ipCount>0?'⚠ '+ipCount+' unique sources':'No activity';
+  document.getElementById('st-ip-trend').className='stat-trend'+(ipCount>0?' up':'');
+
+  // update time series
+  state.timeData.push((state.timeData[state.timeData.length-1]||0)+1);
+  if(state.timeData.length>20) state.timeData.shift();
+
+  // threat level
+  const level=state.failed<10?0:state.failed<30?1:state.failed<60?2:state.failed<100?3:4;
+  updateThreat(level);
+
+  // ip table
+  updateIPTable();
+  updateUserBars();
+}
+
+function updateThreat(level){
+  const segs=['ts1','ts2','ts3','ts4','ts5'];
+  const labels=['● NORMAL','● ELEVATED','▲ HIGH','▲ CRITICAL','🚨 EXTREME'];
+  const colors=[['active-g','active-g',null,null,null],
+                ['active-a','active-a','active-a',null,null],
+                ['active-r','active-r','active-r','active-r',null],
+                ['active-r','active-r','active-r','active-r','active-r'],
+                ['active-r','active-r','active-r','active-r','active-r']];
+  const textColors=['var(--green)','var(--amber)','var(--red)','var(--red)','var(--red)'];
+  segs.forEach((id,i)=>{
+    const el=document.getElementById(id);
+    el.className='seg'+(colors[level][i]?' '+colors[level][i]:'');
+  });
+  const tt=document.getElementById('threatText');
+  tt.textContent=labels[level];
+  tt.style.color=textColors[level];
+}
+
+function updateIPTable(){
+  const sorted=Object.entries(state.ips).sort((a,b)=>b[1]-a[1]).slice(0,8);
+  const max=sorted[0]?sorted[0][1]:1;
+  const tbody=document.getElementById('ipTableBody');
+  if(!sorted.length){
+    tbody.innerHTML='<tr><td colspan="3" style="text-align:center;color:var(--textdim);padding:20px;font-family:var(--mono);font-size:.6rem">No attacks detected.</td></tr>';
+    return;
+  }
+  tbody.innerHTML=sorted.map(([ip,count])=>{
+    const pct=Math.round((count/max)*80);
+    const cls=count>50?'threat-high':count>20?'threat-med':'threat-low';
+    const barCls=count>50?'red':count>20?'amber':'green';
+    const status=count>50?'🔴 CRITICAL':count>20?'🟡 HIGH':'🟢 MEDIUM';
+    return `<tr class="${cls}">
+      <td style="font-family:var(--mono);font-size:.62rem">${ip}</td>
+      <td style="font-family:var(--mono);font-size:.62rem">${count}<span class="bar-inline ${barCls}" style="width:${pct}px"></span></td>
+      <td style="font-family:var(--mono);font-size:.6rem">${status}</td>
+    </tr>`;
+  }).join('');
+}
+
+function updateUserBars(){
+  const sorted=Object.entries(state.users).sort((a,b)=>b[1]-a[1]).slice(0,6);
+  if(!sorted.length) return;
+  const max=sorted[0][1];
+  const colors=['#00d4ff','#00ff88','#ffb700','#ff3355','#a855f7','#22d3ee'];
+  document.getElementById('userBars').innerHTML=sorted.map(([u,c],i)=>
+    `<div class="user-bar-row">
+      <div class="user-bar-label">${u}</div>
+      <div class="user-bar-track"><div class="user-bar-fill" style="width:${Math.round((c/max)*100)}%;background:${colors[i%colors.length]}"></div></div>
+      <div class="user-bar-count">${c}</div>
+    </div>`
+  ).join('');
+}
+
+// ═══════════════════════════════════════
+// ALERTS
+// ═══════════════════════════════════════
+function checkAlerts(){
+  Object.entries(state.ips).forEach(([ip,count])=>{
+    // threshold 20
+    if(count>=20 && !state.alertsTriggered.has(ip+'-20')){
+      state.alertsTriggered.add(ip+'-20');
+      triggerAlert('HIGH','🚨','SSH BRUTE FORCE DETECTED',`IP ${ip} exceeded 20 failed attempts (current: ${count}). SPL threshold alert fired.`,'high','amber');
+    }
+    // threshold 50
+    if(count>=50 && !state.alertsTriggered.has(ip+'-50')){
+      state.alertsTriggered.add(ip+'-50');
+      triggerAlert('CRITICAL','🔴','SUSTAINED BRUTE FORCE — CRITICAL',`IP ${ip} has ${count}+ failed attempts. Possible credential stuffing campaign.`,'critical','red');
+    }
+  });
+
+  // success after failure
+  if(state.success>0 && !state.alertsTriggered.has('success')){
+    state.alertsTriggered.add('success');
+    triggerAlert('CRITICAL','⚠️','ACCOUNT COMPROMISE SUSPECTED',`Successful login detected after brute-force attempts. Investigate immediately. SPL: "Accepted password" OR "Failed password" correlation.`,'critical','red');
+  }
+}
+
+function triggerAlert(severity, icon, title, detail, cls, color){
+  state.alerts++;
+  if(cls==='critical') state.alertCrit++;
+  else if(cls==='high') state.alertHigh++;
+  else state.alertMed++;
+
+  document.getElementById('st-alerts').textContent=state.alerts;
+  document.getElementById('alertBadge').textContent=state.alerts;
+  document.getElementById('alertCrit').textContent=state.alertCrit;
+  document.getElementById('alertHigh').textContent=state.alertHigh;
+  document.getElementById('alertMed').textContent=state.alertMed;
+
+  // header alert
+  document.getElementById('alertDot').style.opacity='1';
+  document.getElementById('alertStatusText').textContent=state.alerts+' ALERT'+(state.alerts>1?'S':'');
+
+  const ts=now();
+  const html=`<div class="alert-item ${cls}">
+    <div class="alert-icon">${icon}</div>
+    <div style="flex:1">
+      <div class="alert-title ${color}">[${severity}] ${title}</div>
+      <div class="alert-detail">${detail}</div>
+    </div>
+    <div class="alert-time">${ts}</div>
+  </div>`;
+
+  const feed=document.getElementById('alertFeed');
+  // remove placeholder
+  if(feed.querySelector('div[style*="dashed"]')) feed.innerHTML='';
+  feed.insertAdjacentHTML('afterbegin',html);
+}
+
+// ═══════════════════════════════════════
+// CHARTS (Canvas)
+// ═══════════════════════════════════════
+function drawLineChart(){
+  const canvas=document.getElementById('lineChart');
+  if(!canvas) return;
+  const parent=canvas.parentElement;
+  canvas.width=parent.offsetWidth||600;
+  canvas.height=170;
+  const ctx=canvas.getContext('2d');
+  const W=canvas.width, H=canvas.height;
+  const pad={top:16,right:20,bottom:30,left:40};
+  const iW=W-pad.left-pad.right, iH=H-pad.top-pad.bottom;
+
+  ctx.clearRect(0,0,W,H);
+
+  // bg grid
+  ctx.strokeStyle='rgba(14,61,88,0.5)';ctx.lineWidth=1;
+  for(let i=0;i<=4;i++){
+    const y=pad.top+i*(iH/4);
+    ctx.beginPath();ctx.moveTo(pad.left,y);ctx.lineTo(pad.left+iW,y);ctx.stroke();
+  }
+
+  const data=state.timeData.slice(-12);
+  const max=Math.max(...data,1);
+  const pts=data.map((v,i)=>({
+    x:pad.left+i*(iW/(data.length-1||1)),
+    y:pad.top+iH-(v/max)*iH
+  }));
+
+  // gradient fill
+  if(pts.length>1){
+    const grad=ctx.createLinearGradient(0,pad.top,0,pad.top+iH);
+    grad.addColorStop(0,'rgba(255,51,85,0.35)');
+    grad.addColorStop(1,'rgba(255,51,85,0.02)');
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x,pad.top+iH);
+    pts.forEach(p=>ctx.lineTo(p.x,p.y));
+    ctx.lineTo(pts[pts.length-1].x,pad.top+iH);
+    ctx.closePath();
+    ctx.fillStyle=grad;ctx.fill();
+
+    // line
+    ctx.beginPath();
+    ctx.strokeStyle='#ff3355';ctx.lineWidth=2;ctx.lineJoin='round';
+    pts.forEach((p,i)=>i===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y));
+    ctx.stroke();
+
+    // dots
+    pts.forEach((p,i)=>{
+      if(i===pts.length-1){
+        ctx.beginPath();ctx.arc(p.x,p.y,4,0,Math.PI*2);
+        ctx.fillStyle='#ff3355';ctx.fill();
+        ctx.shadowBlur=10;ctx.shadowColor='#ff3355';
+        ctx.fill();ctx.shadowBlur=0;
+      }
+    });
+  }
+
+  // Y axis labels
+  ctx.fillStyle='rgba(74,122,144,0.8)';ctx.font='9px Share Tech Mono';ctx.textAlign='right';
+  for(let i=0;i<=4;i++){
+    const val=Math.round((max*(4-i))/4);
+    const y=pad.top+i*(iH/4)+3;
+    ctx.fillText(val,pad.left-6,y);
+  }
+
+  // X axis labels
+  ctx.textAlign='center';
+  const step=Math.ceil(data.length/6);
+  data.forEach((_,i)=>{
+    if(i%step===0){
+      const x=pad.left+i*(iW/(data.length-1||1));
+      ctx.fillText('-'+(data.length-1-i)+'m',x,H-6);
+    }
+  });
+}
+
+function drawBarChart(){
+  const canvas=document.getElementById('barChart');
+  if(!canvas) return;
+  const parent=canvas.parentElement;
+  canvas.width=parent.offsetWidth||560;
+  canvas.height=190;
+  const ctx=canvas.getContext('2d');
+  const W=canvas.width, H=canvas.height;
+  const pad={top:16,right:20,bottom:30,left:44};
+  const iW=W-pad.left-pad.right, iH=H-pad.top-pad.bottom;
+
+  ctx.clearRect(0,0,W,H);
+
+  const data=Object.entries(state.ips).sort((a,b)=>b[1]-a[1]).slice(0,6);
+  if(!data.length){
+    ctx.fillStyle='rgba(74,122,144,0.5)';ctx.font='11px Share Tech Mono';
+    ctx.textAlign='center';ctx.fillText('No data — start simulation',W/2,H/2);
+    return;
+  }
+
+  const max=data[0][1];
+  const barW=Math.min(iW/data.length-10,50);
+  const gap=(iW-barW*data.length)/(data.length+1);
+  const colors=['#ff3355','#ffb700','#00d4ff','#a855f7','#00ff88','#22d3ee'];
+
+  // grid
+  ctx.strokeStyle='rgba(14,61,88,0.5)';ctx.lineWidth=1;
+  for(let i=0;i<=4;i++){
+    const y=pad.top+i*(iH/4);
+    ctx.beginPath();ctx.moveTo(pad.left,y);ctx.lineTo(pad.left+iW,y);ctx.stroke();
+  }
+
+  data.forEach(([ip,count],i)=>{
+    const bH=(count/max)*iH;
+    const x=pad.left+gap+(barW+gap)*i;
+    const y=pad.top+iH-bH;
+    const col=colors[i%colors.length];
+
+    const grad=ctx.createLinearGradient(0,y,0,y+bH);
+    grad.addColorStop(0,col);
+    grad.addColorStop(1,col.replace(/[^,]+\)/,'0.3)').replace('#','rgba(').replace(/(\w{2})(\w{2})(\w{2})/,
+      (_,r,g,b)=>`${parseInt(r,16)},${parseInt(g,16)},${parseInt(b,16)},0.3)`)||col+'33');
+
+    ctx.fillStyle=col+'cc';
+    ctx.beginPath();
+    ctx.roundRect(x,y,barW,bH,3);
+    ctx.fill();
+
+    // glow
+    ctx.shadowBlur=8;ctx.shadowColor=col;
+    ctx.fill();ctx.shadowBlur=0;
+
+    // count label
+    ctx.fillStyle=col;ctx.font='bold 9px Share Tech Mono';
+    ctx.textAlign='center';ctx.fillText(count,x+barW/2,y-4);
+
+    // ip label
+    ctx.fillStyle='rgba(74,122,144,0.8)';ctx.font='7px Share Tech Mono';
+    const shortIP=ip.split('.').slice(2).join('.');
+    ctx.fillText('.'+shortIP,x+barW/2,H-6);
+  });
+
+  // Y axis
+  ctx.fillStyle='rgba(74,122,144,0.8)';ctx.font='9px Share Tech Mono';ctx.textAlign='right';
+  for(let i=0;i<=4;i++){
+    const val=Math.round((max*(4-i))/4);
+    const y=pad.top+i*(iH/4)+3;
+    ctx.fillText(val,pad.left-6,y);
+  }
+}
+
+function updateCharts(){
+  drawLineChart();
+  drawBarChart();
+}
+
+// Initial draw
+setTimeout(()=>{drawLineChart();drawBarChart();},100);
+window.addEventListener('resize',()=>{drawLineChart();drawBarChart();});
+
+// Auto-refresh charts every 2s when attacking
+setInterval(()=>{ if(state.isAttacking) updateCharts(); },2000);
+
+// ═══════════════════════════════════════
+// AUTO SCROLL TOGGLE
+// ═══════════════════════════════════════
+function toggleAutoScroll(btn){
+  state.autoScroll=!state.autoScroll;
+  btn.textContent='AUTO-SCROLL: '+(state.autoScroll?'ON':'OFF');
+  btn.style.color=state.autoScroll?'var(--textdim)':'var(--amber)';
+}
+
+function clearLogs(){
+  document.getElementById('mainLogFeed').innerHTML='<div class="log-entry"><span class="log-ts">── CLEARED ──</span><span class="log-msg info">Log feed cleared.</span></div>';
+}
+
+// ═══════════════════════════════════════
+// BACKGROUND IDLE EVENTS
+// ═══════════════════════════════════════
+// Occasional background noise when not attacking
+setInterval(()=>{
+  if(!state.isAttacking){
+    if(Math.random()<0.15){
+      const entry={ts:now(),host:'ubuntu',pid:800+Math.floor(Math.random()*200),
+        msg:`pam_unix(sshd:auth): authentication failure; logname= uid=0 rhost=10.0.0.${Math.floor(Math.random()*255)}`,
+        type:'warn'};
+      const feed=document.getElementById('dashLogFeed');
+      const html=`<div class="log-entry"><span class="log-ts">${entry.ts}</span><span class="log-host">${entry.host}</span><span class="log-msg ${entry.type}">${entry.msg}</span></div>`;
+      feed.insertAdjacentHTML('afterbegin',html);
+      while(feed.children.length>50) feed.removeChild(feed.lastChild);
+    }
+  }
+},4000);
+</script>
+</body>
+</html>
